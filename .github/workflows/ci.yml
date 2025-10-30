@@ -24,6 +24,9 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
+      - name: Create virtual environment
+        run: uv venv --python ${{ matrix.python-version }}
+
       - name: Install dependencies
         run: |
           uv pip install -e ".[dev]"
@@ -59,6 +62,9 @@ jobs:
 
       - name: Set up Python
         run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv --python 3.11
 
       - name: Build package
         run: |

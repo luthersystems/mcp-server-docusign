@@ -21,9 +21,9 @@
 
 - Python 3.11+
 - `uv` package manager (recommended) or `pip`
-- DocuSign developer account (demo or production)
+- [DocuSign developer account](https://developers.docusign.com/) (demo or production)
 - Integration key with JWT configured
-- RSA keypair for JWT authentication
+- RSA keypair for JWT authentication (you generate this)
 - Admin consent for `signature` + `impersonation` scopes
 
 ## Installation
@@ -56,7 +56,7 @@ uv pip install -e ".[dev]"
 
 ### Environment Variables
 
-Configure the server using environment variables:
+Configure the server using environment variables (see [Configuration Reference](https://developers.docusign.com/docs/esign-rest-api/how-to/request-signature-in-app-embedded/)):
 
 ```bash
 # Authentication base URL
@@ -79,12 +79,14 @@ DS_TOKEN_EXP_SECS=3600
 
 ### DocuSign Setup
 
-#### 1. Create Integration Key
+#### 1. Create or Select Integration Key
 
-1. Log into DocuSign Admin Console
-2. Navigate to **Apps & Keys**
-3. Click **Add App and Integration Key**
-4. Note the **Integration Key** (client ID)
+1. Log into [DocuSign Admin Console](https://admindemo.docusign.com/) (demo) or [Admin Console](https://admin.docusign.com/) (production)
+2. Navigate to **Settings** → **Apps & Keys**
+3. Either:
+   - **Use an existing integration key** from the list (e.g., `1fa2e333-fdc2-411c-ab65-18ed437eae53`)
+   - **Or create a new one**: Click **"+ ADD APP AND INTEGRATION KEY"**
+4. Note/copy the **Integration Key** (this is your `DS_INTEGRATION_KEY`)
 
 #### 2. Generate RSA Keypair
 

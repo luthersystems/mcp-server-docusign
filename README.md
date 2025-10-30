@@ -32,23 +32,23 @@
 
 ```bash
 # Install from GitHub
-uvx --from git+https://github.com/luthersystems/mcp-docusign mcp-server-docusign
+uvx --from git+https://github.com/luthersystems/mcp-server-docusign mcp-server-docusign
 
 # Or install in project
-uv pip install git+https://github.com/luthersystems/mcp-docusign
+uv pip install git+https://github.com/luthersystems/mcp-server-docusign
 ```
 
 ### Using pip
 
 ```bash
-pip install git+https://github.com/luthersystems/mcp-docusign
+pip install git+https://github.com/luthersystems/mcp-server-docusign
 ```
 
 ### Development install
 
 ```bash
-git clone https://github.com/luthersystems/mcp-docusign.git
-cd mcp-docusign
+git clone https://github.com/luthersystems/mcp-server-docusign.git
+cd mcp-server-docusign
 uv pip install -e ".[dev]"
 ```
 
@@ -142,7 +142,7 @@ The server runs in stdio mode by default, suitable for MCP clients like Claude D
 ### Testing with MCP Inspector
 
 ```bash
-npx -y @modelcontextprotocol/inspector uvx --from git+https://github.com/luthersystems/mcp-docusign mcp-server-docusign
+npx -y @modelcontextprotocol/inspector uvx --from git+https://github.com/luthersystems/mcp-server-docusign mcp-server-docusign
 ```
 
 ## Available Tools
@@ -250,7 +250,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/luthersystems/mcp-docusign",
+        "git+https://github.com/luthersystems/mcp-server-docusign",
         "mcp-server-docusign"
       ],
       "env": {
@@ -282,7 +282,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 # Install dev dependencies
 uv pip install -e ".[dev]"
 
-# Run tests
+# Run unit tests (no credentials needed)
 pytest
 
 # Run with coverage
@@ -295,10 +295,54 @@ ruff check .
 ruff format .
 ```
 
+### Integration Tests (Optional)
+
+Integration tests validate real DocuSign API authentication. They are **skipped by default** and only run when you provide real credentials.
+
+**To enable integration tests:**
+
+1. Copy `.env.example` to `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Fill in your DocuSign credentials in `.env`:
+   ```bash
+   # Required fields:
+   DS_AUTH_BASE=https://account-d.docusign.com
+   DS_INTEGRATION_KEY=your-integration-key-guid
+   DS_USER_ID=your-user-guid
+   DS_PRIVATE_KEY_PATH=./private.key
+   DS_OAUTH_SCOPE=signature impersonation
+   ```
+
+3. Create your RSA keypair:
+   ```bash
+   openssl genrsa -out private.key 2048
+   openssl rsa -in private.key -pubout -out public.key
+   ```
+
+4. Upload `public.key` to DocuSign and grant admin consent (see `.env.example` for detailed instructions)
+
+5. Run integration tests:
+   ```bash
+   pytest tests/test_integration.py -v
+   ```
+
+**What the integration tests verify:**
+- ✅ JWT authentication works with your credentials
+- ✅ Access token can be obtained successfully  
+- ✅ Account ID can be retrieved
+- ✅ Base URI is discovered correctly
+- ✅ API calls work (tests `list_templates`)
+- ✅ Token refresh mechanism works
+
+**Note**: Integration tests require a DocuSign developer account (demo environment recommended).
+
 ### Project Structure
 
 ```
-mcp-docusign/
+mcp-server-docusign/
 ├── src/mcp_server_docusign/
 │   ├── __init__.py
 │   ├── server.py           # Main FastMCP server

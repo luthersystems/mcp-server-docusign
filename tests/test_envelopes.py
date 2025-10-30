@@ -152,4 +152,3 @@ def test_list_envelopes(mock_mcp, mock_ds_client):
 
         # Verify API was called
         mock_api.list_status_changes.assert_called_once()
-

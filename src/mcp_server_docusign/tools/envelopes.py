@@ -1,6 +1,6 @@
 """Envelope management tools for DocuSign."""
 
-from typing import Any, Optional
+from typing import Any
 
 from docusign_esign import (
     Document,
@@ -28,7 +28,7 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
         template_id: str,
         email_subject: str,
         role_assignments: list[dict[str, str]],
-        email_blurb: Optional[str] = None,
+        email_blurb: str | None = None,
         status: str = "sent",
     ) -> dict[str, Any]:
         """Create an envelope from a DocuSign template.
@@ -85,7 +85,7 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
         documents: list[dict[str, Any]],
         recipients: dict[str, list[dict[str, str]]],
         email_subject: str,
-        email_blurb: Optional[str] = None,
+        email_blurb: str | None = None,
         status: str = "sent",
     ) -> dict[str, Any]:
         """Create an envelope from documents (not using a template).
@@ -187,9 +187,9 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
 
     @mcp.tool()
     def list_envelopes(
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None,
-        status: Optional[str] = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        status: str | None = None,
     ) -> dict[str, Any]:
         """List envelopes with optional filters.
 
@@ -235,4 +235,3 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
             "resultSetSize": result.result_set_size,
             "totalSetSize": result.total_set_size,
         }
-

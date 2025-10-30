@@ -56,3 +56,4 @@ private.key
 # Logs
 *.log
 
+coverage.xml

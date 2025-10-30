@@ -36,9 +36,7 @@ class MockTemplateDetails(MockTemplate):
                 routing_order="1",
             )
         ]
-        self.documents = [
-            Mock(document_id="1", name="doc.pdf", file_extension="pdf", order="1")
-        ]
+        self.documents = [Mock(document_id="1", name="doc.pdf", file_extension="pdf", order="1")]
 
 
 class MockTemplatesListResult:
@@ -127,4 +125,3 @@ def test_get_template_definition(mock_mcp, mock_ds_client):
 
         # Verify API was called
         mock_api.get.assert_called_once_with("acct-123", "tmpl-123")
-

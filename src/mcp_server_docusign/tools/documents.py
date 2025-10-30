@@ -79,4 +79,3 @@ def register_document_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
             "contentBase64": document_base64,
             "sizeBytes": len(document_bytes),
         }
-

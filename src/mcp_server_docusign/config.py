@@ -1,7 +1,6 @@
 """Configuration management for DocuSign MCP Server."""
 
 from pathlib import Path
-from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -23,8 +22,8 @@ class DocuSignConfig(BaseSettings):
     token_exp_secs: int = Field(default=3600, description="Token expiration in seconds")
 
     # Runtime cached values (not from env)
-    _base_uri: Optional[str] = None
-    _account_id: Optional[str] = None
+    _base_uri: str | None = None
+    _account_id: str | None = None
 
     model_config = {"env_prefix": "DS_", "case_sensitive": False}
 
@@ -39,12 +38,11 @@ class DocuSignConfig(BaseSettings):
         self._account_id = account_id
 
     @property
-    def base_uri(self) -> Optional[str]:
+    def base_uri(self) -> str | None:
         """Get cached base URI."""
         return self._base_uri
 
     @property
-    def account_id(self) -> Optional[str]:
+    def account_id(self) -> str | None:
         """Get cached account ID."""
         return self._account_id
-

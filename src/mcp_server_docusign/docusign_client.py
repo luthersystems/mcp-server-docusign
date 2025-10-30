@@ -1,7 +1,6 @@
 """DocuSign API client with JWT authentication."""
 
 import time
-from typing import Optional
 
 from docusign_esign import ApiClient
 from docusign_esign.client.api_exception import ApiException
@@ -12,15 +11,15 @@ from .config import DocuSignConfig
 class DocuSignClient:
     """DocuSign API client with JWT server-to-server authentication."""
 
-    def __init__(self, config: Optional[DocuSignConfig] = None):
+    def __init__(self, config: DocuSignConfig | None = None):
         """Initialize the DocuSign client.
 
         Args:
             config: DocuSign configuration. If None, loads from environment.
         """
         self.config = config or DocuSignConfig.from_env()
-        self._api_client: Optional[ApiClient] = None
-        self._token: Optional[str] = None
+        self._api_client: ApiClient | None = None
+        self._token: str | None = None
         self._token_expiry: float = 0
 
     def _read_private_key(self) -> bytes:
@@ -139,4 +138,3 @@ class DocuSignClient:
         """
         self._ensure_authenticated()
         return self.config.account_id
-

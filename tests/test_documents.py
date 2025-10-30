@@ -110,4 +110,3 @@ def test_download_envelope_document(mock_mcp, mock_ds_client):
 
         # Verify API was called
         mock_api.get_document.assert_called_once_with("acct-123", "1", "env123")
-

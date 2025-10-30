@@ -1,6 +1,6 @@
 """Template management tools for DocuSign."""
 
-from typing import Any, Optional
+from typing import Any
 
 from docusign_esign import TemplatesApi
 from fastmcp import FastMCP
@@ -17,7 +17,7 @@ def register_template_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
     """
 
     @mcp.tool()
-    def list_templates(search_text: Optional[str] = None) -> dict[str, Any]:
+    def list_templates(search_text: str | None = None) -> dict[str, Any]:
         """List available DocuSign templates.
 
         Args:
@@ -112,4 +112,3 @@ def register_template_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
             "roles": roles,
             "documents": documents,
         }
-

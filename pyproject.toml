@@ -52,6 +52,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+filterwarnings = [
+    # Ignore urllib3 deprecation warnings from DocuSign SDK (not our code)
+    "ignore:HTTPResponse.getheaders\\(\\) is deprecated:DeprecationWarning:docusign_esign",
+    "ignore:HTTPResponse.getheader\\(\\) is deprecated:DeprecationWarning:docusign_esign",
+]
 addopts = [
     "--strict-markers",
     "--cov=mcp_server_docusign",

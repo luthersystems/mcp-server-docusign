@@ -39,9 +39,21 @@ jobs:
         run: |
           uv run ruff format --check .
 
-      - name: Run tests with pytest
+      - name: Run unit tests with pytest
         run: |
-          uv run pytest --cov=mcp_server_docusign --cov-report=xml --cov-report=term
+          uv run pytest tests/ --ignore=tests/test_integration.py --cov=mcp_server_docusign --cov-report=xml --cov-report=term
+
+      - name: Run integration tests (if secrets available)
+        if: env.DS_INTEGRATION_KEY != ''
+        env:
+          DS_AUTH_BASE: ${{ secrets.DS_AUTH_BASE || 'https://account-d.docusign.com' }}
+          DS_INTEGRATION_KEY: ${{ secrets.DS_INTEGRATION_KEY }}
+          DS_USER_ID: ${{ secrets.DS_USER_ID }}
+          DS_PRIVATE_KEY: ${{ secrets.DS_PRIVATE_KEY }}
+          DS_OAUTH_SCOPE: signature impersonation
+          DS_TOKEN_EXP_SECS: 3600
+        run: |
+          uv run pytest tests/test_integration.py -v
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

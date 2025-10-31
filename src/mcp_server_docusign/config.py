@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -16,10 +16,25 @@ class DocuSignConfig(BaseSettings):
     integration_key: str = Field(..., description="DocuSign Integration Key (client_id)")
     user_id: str = Field(..., description="User GUID to impersonate")
     oauth_scope: str = Field(default="signature impersonation", description="OAuth scopes")
-    private_key_path: Path = Field(
-        default=Path("./private.key"), description="Path to RSA private key (PEM)"
+    private_key_path: Path | None = Field(
+        default=None, description="Path to RSA private key (PEM)"
+    )
+    private_key: str | None = Field(
+        default=None, description="Base64-encoded RSA private key (alternative to private_key_path)"
     )
     token_exp_secs: int = Field(default=3600, description="Token expiration in seconds")
+
+    @model_validator(mode="after")
+    def validate_private_key(self) -> "DocuSignConfig":
+        """Ensure either private_key or private_key_path is provided."""
+        if not self.private_key and not self.private_key_path:
+            # Default to ./private.key if neither is provided
+            self.private_key_path = Path("./private.key")
+        if self.private_key and self.private_key_path:
+            raise ValueError(
+                "Provide either DS_PRIVATE_KEY or DS_PRIVATE_KEY_PATH, not both"
+            )
+        return self
 
     # Runtime cached values (not from env)
     _base_uri: str | None = None

@@ -102,21 +102,49 @@ openssl rsa -in private.key -pubout -out public.key
 
 1. In DocuSign Admin Console, select your integration
 2. Under **Authentication**, choose **JWT (JSON Web Token)**
-3. Upload your `public.key` file
-4. Add redirect URI (can be `http://localhost` for JWT)
-5. Save changes
+3. Upload your `public.key` file (generated in step 2)
+4. Under **Redirect URIs**, click "Add URI" and add: `https://www.docusign.com`
+   - **Important**: The redirect URI must exactly match what you'll use in the consent URL (no trailing slash)
+5. Click **Save** at the bottom
 
-#### 4. Grant Admin Consent
+#### 4. Grant Admin Consent (One-Time Required)
 
-**Critical**: Before the server can operate, an account administrator must grant consent:
+**Critical**: Before the server can operate, an account administrator must grant consent for `signature` and `impersonation` scopes.
 
-1. Construct consent URL:
+**Steps:**
+
+1. **Ensure the redirect URI is configured** in Step 3 above (e.g., `https://www.docusign.com`)
+
+2. **Construct the consent URL** (replace `<INTEGRATION_KEY>` with your actual integration key):
    ```
-   https://account-d.docusign.com/oauth/auth?response_type=code&scope=signature%20impersonation&client_id=<INTEGRATION_KEY>&redirect_uri=http://localhost
+   https://account-d.docusign.com/oauth/auth?response_type=code&scope=signature%20impersonation&client_id=<INTEGRATION_KEY>&redirect_uri=https://www.docusign.com
    ```
-2. Visit URL in browser while logged in as admin
-3. Click **Allow Access**
-4. This is a **one-time** operation
+   - For **demo/sandbox**: use `https://account-d.docusign.com`
+   - For **production**: use `https://account.docusign.com`
+   - The `redirect_uri` parameter **must exactly match** what you added in Step 3
+
+3. **Visit the URL** in your browser while logged in as a DocuSign admin
+
+4. **Click "Allow Access"** to grant consent
+
+5. You'll be redirected to the redirect URI (which may show an error page, but that's OK - the consent was granted)
+
+6. **This is a one-time operation** - you won't need to do it again unless you revoke consent or change scopes
+
+**Troubleshooting Template Permissions:**
+
+If you get 401 errors when accessing templates, ensure:
+
+1. **User has template permissions** in DocuSign:
+   - Go to **Settings** → **Users** → select the user
+   - Under **Permissions**, ensure "Allow user to create and manage templates" is enabled
+   - Save changes
+
+2. **Account has templates feature** enabled (may require certain DocuSign plan levels)
+
+3. **The OAuth scopes are correct**: 
+   - The `signature` scope (included in our consent URL) covers template access
+   - If you've modified scopes, you may need to re-grant consent
 
 #### 5. Get User ID
 
@@ -310,12 +338,17 @@ Integration tests validate real DocuSign API authentication. They are **skipped 
 
 2. Fill in your DocuSign credentials in `.env`:
    ```bash
-   # Required fields:
+   # Required fields (choose ONE of the two private key options):
+   
+   # Option 1: File path (recommended for local development)
    DS_AUTH_BASE=https://account-d.docusign.com
    DS_INTEGRATION_KEY=your-integration-key-guid
    DS_USER_ID=your-user-guid
    DS_PRIVATE_KEY_PATH=./private.key
    DS_OAUTH_SCOPE=signature impersonation
+   
+   # Option 2: Base64-encoded key (recommended for CI/CD)
+   # DS_PRIVATE_KEY=LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0t...
    ```
 
 3. Create your RSA keypair:
@@ -331,6 +364,30 @@ Integration tests validate real DocuSign API authentication. They are **skipped 
    pytest tests/test_integration.py -v
    ```
 
+### CI/CD Setup (GitHub Actions)
+
+To run integration tests in GitHub Actions:
+
+1. **Encode your private key to base64:**
+   ```bash
+   # macOS/Linux
+   base64 -i private.key | tr -d '\n' | pbcopy
+   
+   # This copies the base64-encoded key to your clipboard
+   ```
+
+2. **Add GitHub repository secrets:**
+   - Go to your repo → **Settings** → **Secrets and variables** → **Actions**
+   - Add the following secrets:
+     - `DS_AUTH_BASE`: `https://account-d.docusign.com`
+     - `DS_INTEGRATION_KEY`: Your integration key GUID
+     - `DS_USER_ID`: Your user GUID
+     - `DS_PRIVATE_KEY`: The base64-encoded private key (from step 1)
+
+3. **The CI workflow will automatically run integration tests** when these secrets are present
+
+**Note**: The integration tests will be skipped in PRs from forks (for security), but will run on pushes to main/develop branches.
+
 **What the integration tests verify:**
 - ✅ JWT authentication works with your credentials
 - ✅ Access token can be obtained successfully  
@@ -340,6 +397,25 @@ Integration tests validate real DocuSign API authentication. They are **skipped 
 - ✅ Token refresh mechanism works
 
 **Note**: Integration tests require a DocuSign developer account (demo environment recommended).
+
+**Troubleshooting Template Access (401 Errors):**
+
+If the `test_list_templates` test is skipped with a 401 error, this indicates template access permissions are not configured. To fix:
+
+1. **Check User Permissions** in DocuSign Admin Console:
+   - Go to https://admindemo.docusign.com/ → **Users**
+   - Click on your user → **Permissions**
+   - Ensure these are enabled:
+     - ✅ "Allow user to create and manage templates"
+     - ✅ "Allow user to use templates"
+     - ✅ "Allow user to share templates"
+   - Save changes
+
+2. **Verify OAuth Scopes**: The `signature impersonation` scopes already cover template access. If you changed scopes, you may need to re-grant admin consent.
+
+3. **Account Plan Limitations**: Some DocuSign demo accounts may have limited API access. Templates should work with most developer accounts, but if issues persist, it may be an account-level restriction.
+
+**Note**: The template test being skipped doesn't prevent the MCP server from functioning. Once deployed with proper production credentials and permissions, template operations will work normally.
 
 ### Project Structure
 

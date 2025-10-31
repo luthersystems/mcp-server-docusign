@@ -1,5 +1,6 @@
 """DocuSign API client with JWT authentication."""
 
+import base64
 import time
 
 from docusign_esign import ApiClient
@@ -23,16 +24,27 @@ class DocuSignClient:
         self._token_expiry: float = 0
 
     def _read_private_key(self) -> bytes:
-        """Read the RSA private key from file.
+        """Read the RSA private key from file or base64-encoded environment variable.
 
         Returns:
             Private key bytes.
 
         Raises:
             FileNotFoundError: If private key file doesn't exist.
+            ValueError: If base64 decoding fails.
         """
-        with open(self.config.private_key_path, "rb") as f:
-            return f.read()
+        if self.config.private_key:
+            # Decode base64-encoded private key from environment variable
+            try:
+                return base64.b64decode(self.config.private_key)
+            except Exception as e:
+                raise ValueError(f"Failed to decode base64 private key: {e}") from e
+        elif self.config.private_key_path:
+            # Read private key from file
+            with open(self.config.private_key_path, "rb") as f:
+                return f.read()
+        else:
+            raise ValueError("No private key configured (DS_PRIVATE_KEY or DS_PRIVATE_KEY_PATH)")
 
     def _get_jwt_token(self) -> str:
         """Obtain a JWT access token from DocuSign.

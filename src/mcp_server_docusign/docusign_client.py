@@ -130,7 +130,9 @@ class DocuSignClient:
 
             # Create new API client with discovered base URI
             self._api_client = ApiClient()
-            self._api_client.host = self.config.base_uri  # Must set host directly, not via set_base_path()
+            self._api_client.host = (
+                self.config.base_uri
+            )  # Must set host directly, not via set_base_path()
             self._api_client.set_default_header("Authorization", f"Bearer {self._token}")
 
     def get_api_client(self) -> ApiClient:

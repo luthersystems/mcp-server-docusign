@@ -16,9 +16,7 @@ class DocuSignConfig(BaseSettings):
     integration_key: str = Field(..., description="DocuSign Integration Key (client_id)")
     user_id: str = Field(..., description="User GUID to impersonate")
     oauth_scope: str = Field(default="signature impersonation", description="OAuth scopes")
-    private_key_path: Path | None = Field(
-        default=None, description="Path to RSA private key (PEM)"
-    )
+    private_key_path: Path | None = Field(default=None, description="Path to RSA private key (PEM)")
     private_key: str | None = Field(
         default=None, description="Base64-encoded RSA private key (alternative to private_key_path)"
     )
@@ -31,9 +29,7 @@ class DocuSignConfig(BaseSettings):
             # Default to ./private.key if neither is provided
             self.private_key_path = Path("./private.key")
         if self.private_key and self.private_key_path:
-            raise ValueError(
-                "Provide either DS_PRIVATE_KEY or DS_PRIVATE_KEY_PATH, not both"
-            )
+            raise ValueError("Provide either DS_PRIVATE_KEY or DS_PRIVATE_KEY_PATH, not both")
         return self
 
     # Runtime cached values (not from env)

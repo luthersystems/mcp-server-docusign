@@ -123,4 +123,3 @@ def test_token_refresh(ds_client):
     assert second_token != first_token
     assert ds_client._token_expiry > first_expiry
     print("✓ Successfully refreshed JWT token")
-

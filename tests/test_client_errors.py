@@ -163,7 +163,7 @@ def test_unreachable_auth_host_is_an_auth_error(client):
     err = MaxRetryError(None, "/oauth/token", "connection refused")
     with patch(PATCH_API_CLIENT) as api_client_cls:
         api_client_cls.return_value.request_jwt_user_token.side_effect = err
-        with pytest.raises(ApiException, match="Failed to obtain JWT token: MaxRetryError"):
+        with pytest.raises(ApiException, match="Failed to obtain JWT token: Could not reach"):
             client.get_api_client()
 
 
@@ -255,4 +255,60 @@ async def test_tool_returns_connection_error_to_mcp_client():
         result = await _call_list_templates(ds_client)
 
     assert result.is_error
-    assert result.content[0].text.startswith("Could not reach DocuSign: MaxRetryError")
+    assert result.content[0].text == "Could not reach DocuSign: str"
+    assert "/templates" not in result.content[0].text
+
+
+def test_discovery_connection_error_is_an_auth_error(client):
+    err = MaxRetryError(None, "/oauth/userinfo", "timed out")
+    with patch(PATCH_API_CLIENT) as api_client_cls:
+        api_client_cls.return_value.request_jwt_user_token.return_value = Mock(access_token="tok")
+        api_client_cls.return_value.get_user_info.side_effect = err
+        with pytest.raises(ApiException, match="Failed to discover base URI: Could not reach"):
+            client.get_api_client()
+
+
+def test_account_without_base_uri_is_an_auth_error(client):
+    account = Mock(account_id="a", is_default="true", base_uri=None)
+    with patch(PATCH_API_CLIENT) as api_client_cls:
+        api_client_cls.return_value.request_jwt_user_token.return_value = Mock(access_token="tok")
+        api_client_cls.return_value.get_user_info.return_value = Mock(accounts=[account])
+        with pytest.raises(ApiException, match="no base URI"):
+            client.get_api_client()
+
+
+def test_consent_hint_when_sdk_puts_body_in_reason(client):
+    err = ApiException(status=200, reason='{"error":"consent_required"}')
+    with patch(PATCH_API_CLIENT) as api_client_cls:
+        api_client_cls.return_value.request_jwt_user_token.side_effect = err
+        with pytest.raises(ApiException, match="Grant admin consent"):
+            client.get_api_client()
+
+
+@pytest.mark.asyncio
+async def test_every_tool_turns_docusign_errors_into_tool_errors():
+    """Guards new tools: one registered without @translate_api_errors fails here."""
+    from mcp_server_docusign.tools.documents import register_document_tools
+    from mcp_server_docusign.tools.envelopes import register_envelope_tools
+
+    ds_client = Mock(spec=DocuSignClient)
+    ds_client.get_api_client.side_effect = ApiException(status=0, reason="boom")
+    ds_client.get_account_id.side_effect = ApiException(status=0, reason="boom")
+    mcp = FastMCP("test")
+    for register in (register_template_tools, register_envelope_tools, register_document_tools):
+        register(mcp, ds_client)
+
+    samples = {"string": "x", "array": [], "object": {}, "integer": 1, "boolean": True}
+    async with Client(mcp) as mcp_client:
+        tools = await mcp_client.list_tools()
+        assert len(tools) == 8
+        for tool in tools:
+            schema = tool.input_schema
+            args = {}
+            for name in schema.get("required", []):
+                prop = schema["properties"][name]
+                kind = prop.get("type") or prop.get("anyOf", [{}])[0].get("type", "string")
+                args[name] = samples[kind]
+            result = await mcp_client.call_tool(tool.name, args, raise_on_error=False)
+            assert result.is_error, tool.name
+            assert result.content[0].text == "DocuSign API error: boom", tool.name

@@ -4,11 +4,19 @@ import base64
 import time
 from urllib.parse import urlsplit
 
+import jwt
 from docusign_esign import ApiClient
-from docusign_esign.client.api_exception import ApiException
+from docusign_esign.client.api_exception import ApiException, ArgumentException
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from .config import DocuSignConfig
-from .errors import DocuSignAuthError, body_detail, describe_api_error
+from .errors import (
+    DocuSignAuthError,
+    body_detail,
+    describe_api_error,
+    describe_connection_error,
+    one_line,
+)
 
 __all__ = ["DocuSignAuthError", "DocuSignClient"]
 
@@ -68,9 +76,9 @@ class DocuSignClient:
         Raises:
             DocuSignAuthError: If the token request fails.
         """
-        # Create temporary API client for token request
+        # request_jwt_user_token builds its URL from oauth_host_name, so the
+        # client needs no base path.
         api_client = ApiClient()
-        api_client.set_base_path(self.config.auth_base)
 
         try:
             private_key = self._read_private_key()
@@ -88,16 +96,21 @@ class DocuSignClient:
             # missing consent). Give the consent hint only for that cause, so
             # a wrong key does not send the operator to the consent page.
             message = f"Failed to obtain JWT token: {describe_api_error(e)}"
-            if "consent_required" in (body_detail(e.body) or ""):
+            # The SDK puts the body in reason when it raises for a reply
+            # without an access token, so look in both.
+            if "consent_required" in f"{body_detail(e.body) or ''} {e.reason or ''}":
                 message += ". Grant admin consent for the integration key"
             raise DocuSignAuthError(message, status=e.status) from e
-        except Exception as e:
-            # Everything else here is a setup or network fault: a missing or
-            # malformed key (OSError, ValueError, PyJWT errors) or an
-            # unreachable DS_AUTH_BASE (urllib3 errors the SDK passes through).
-            # Name it as an auth failure so the operator knows where to look.
+        except Urllib3HTTPError as e:
             raise DocuSignAuthError(
-                f"Failed to obtain JWT token: {type(e).__name__}: {' '.join(str(e).split())}"
+                f"Failed to obtain JWT token: {describe_connection_error(e)}"
+            ) from e
+        except (OSError, ValueError, jwt.PyJWTError, ArgumentException) as e:
+            # A missing or malformed key or bad settings. Name it as a JWT
+            # failure so the operator knows where to look. Other exceptions
+            # are code bugs and are not relabelled.
+            raise DocuSignAuthError(
+                f"Failed to obtain JWT token: {type(e).__name__}: {one_line(str(e))}"
             ) from e
 
     def _discover_base_uri_and_account(self, token: str) -> tuple[str, str]:
@@ -125,6 +138,10 @@ class DocuSignClient:
             raise DocuSignAuthError(
                 f"Failed to discover base URI: {describe_api_error(e)}", status=e.status
             ) from e
+        except Urllib3HTTPError as e:
+            raise DocuSignAuthError(
+                f"Failed to discover base URI: {describe_connection_error(e)}"
+            ) from e
 
         accounts = user_info.accounts or []
         if not accounts:
@@ -133,6 +150,8 @@ class DocuSignClient:
         # A user can belong to several accounts; use the one DocuSign marks as
         # the default (is_default is the string "true"), not the first listed.
         account = next((a for a in accounts if str(a.is_default).lower() == "true"), accounts[0])
+        if not account.base_uri or not account.account_id:
+            raise DocuSignAuthError("Default account has no base URI or account ID")
         return account.base_uri + "/restapi", account.account_id
 
     def _ensure_authenticated(self) -> None:

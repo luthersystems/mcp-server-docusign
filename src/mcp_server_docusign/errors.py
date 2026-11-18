@@ -16,7 +16,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from docusign_esign.client.api_exception import ApiException
+from docusign_esign.client.api_exception import ApiException, ArgumentException
 from fastmcp.exceptions import ToolError
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
@@ -51,7 +51,7 @@ class DocuSignAuthError(ApiException):
         return (type(self), (self.message, self.status))
 
 
-def _one_line(text: str) -> str:
+def one_line(text: str) -> str:
     """Collapse whitespace, so a multi-line SDK reason stays on one line."""
     return " ".join(text.split())
 
@@ -70,11 +70,11 @@ def body_detail(body: Any) -> str | None:
     except ValueError:
         data = None
     if not isinstance(data, dict):
-        return _one_line(text)[:_MAX_RAW_BODY] or None
+        return one_line(text)[:_MAX_RAW_BODY] or None
     code = data.get("error") or data.get("errorCode")
     desc = data.get("error_description") or data.get("message")
     parts = [str(p) for p in (code, desc) if p]
-    return _one_line(": ".join(parts)) or None
+    return one_line(": ".join(parts)) or None
 
 
 def describe_api_error(err: ApiException) -> str:
@@ -87,9 +87,28 @@ def describe_api_error(err: ApiException) -> str:
     detail = body_detail(getattr(err, "body", None))
     trace = getattr(err, "trace_token", None)
     head = f"DocuSign API error ({status})" if status else "DocuSign API error"
-    parts = [_one_line(str(p)) for p in (reason, detail) if p]
+    parts = [one_line(str(p)) for p in (reason, detail) if p]
     text = f"{head}: {' - '.join(parts)}" if parts else head
     return f"{text} (trace token {trace})" if trace else text
+
+
+def describe_connection_error(err: Exception) -> str:
+    """Describe a urllib3 error by its host and cause, without the request URL.
+
+    str() of a MaxRetryError holds the full URL, query string included
+    (account ID, envelope IDs, search text). That text goes to the MCP client
+    and the model, so keep only the host and the underlying error.
+    """
+    pool = getattr(err, "pool", None)
+    host = getattr(pool, "host", None)
+    cause = getattr(err, "reason", None) or err
+    where = f" ({host})" if host else ""
+    return f"Could not reach DocuSign{where}: {type(cause).__name__}"
+
+
+# The DocuSign failures a tool turns into a ToolError. ArgumentException is
+# what the SDK raises for a call it refuses before sending it.
+DOCUSIGN_ERRORS = (ApiException, ArgumentException, Urllib3HTTPError)
 
 
 def tool_error_message(err: Exception) -> str:
@@ -98,14 +117,16 @@ def tool_error_message(err: Exception) -> str:
         return err.message
     if isinstance(err, ApiException):
         return describe_api_error(err)
-    return f"Could not reach DocuSign: {type(err).__name__}: {_one_line(str(err))}"
+    if isinstance(err, Urllib3HTTPError):
+        return describe_connection_error(err)
+    return f"DocuSign SDK error: {type(err).__name__}: {one_line(str(err))}"
 
 
 def translate_api_errors(func: F) -> F:
     """Re-raise a DocuSign failure from a tool as a ToolError with a readable message.
 
-    It covers ApiException and urllib3 errors (the SDK passes connection
-    failures through unwrapped). FastMCP logs a ToolError without a traceback,
+    It covers DOCUSIGN_ERRORS (the SDK passes urllib3 connection failures
+    through unwrapped). FastMCP logs a ToolError without a traceback,
     so the traceback is logged here. functools.wraps keeps the signature, so
     FastMCP still builds the tool's input schema from the wrapped function.
     """
@@ -114,7 +135,7 @@ def translate_api_errors(func: F) -> F:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
-        except (ApiException, Urllib3HTTPError) as e:
+        except DOCUSIGN_ERRORS as e:
             message = tool_error_message(e)
             logger.warning("DocuSign call in %s failed: %s", func.__name__, message, exc_info=True)
             raise ToolError(message) from e

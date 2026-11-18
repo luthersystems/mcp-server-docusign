@@ -53,10 +53,10 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -93,7 +93,7 @@ jobs:
           uv run pytest tests/test_integration.py -v
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         if: matrix.python-version == '3.11'
         with:
           file: ./coverage.xml
@@ -104,10 +104,10 @@ jobs:
     if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 

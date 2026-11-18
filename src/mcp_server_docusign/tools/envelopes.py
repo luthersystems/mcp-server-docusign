@@ -13,6 +13,7 @@ from docusign_esign import (
 from fastmcp import FastMCP
 
 from ..docusign_client import DocuSignClient
+from ..errors import translate_api_errors
 
 
 def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
@@ -24,6 +25,7 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
     """
 
     @mcp.tool()
+    @translate_api_errors
     def create_envelope_from_template(
         template_id: str,
         email_subject: str,
@@ -81,6 +83,7 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
         }
 
     @mcp.tool()
+    @translate_api_errors
     def create_envelope_from_documents(
         documents: list[dict[str, Any]],
         recipients: dict[str, list[dict[str, str]]],
@@ -155,6 +158,7 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
         }
 
     @mcp.tool()
+    @translate_api_errors
     def get_envelope_status(envelope_id: str) -> dict[str, Any]:
         """Get the status and metadata of an envelope.
 
@@ -186,6 +190,7 @@ def register_envelope_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
         }
 
     @mcp.tool()
+    @translate_api_errors
     def list_envelopes(
         from_date: str | None = None,
         to_date: str | None = None,

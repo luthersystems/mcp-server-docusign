@@ -7,6 +7,7 @@ from docusign_esign import EnvelopesApi
 from fastmcp import FastMCP
 
 from ..docusign_client import DocuSignClient
+from ..errors import translate_api_errors
 
 
 def register_document_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
@@ -18,6 +19,7 @@ def register_document_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
     """
 
     @mcp.tool()
+    @translate_api_errors
     def list_envelope_documents(envelope_id: str) -> dict[str, Any]:
         """List all documents in an envelope.
 
@@ -53,6 +55,7 @@ def register_document_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
         }
 
     @mcp.tool()
+    @translate_api_errors
     def download_envelope_document(envelope_id: str, document_id: str) -> dict[str, Any]:
         """Download a specific document from an envelope.
 

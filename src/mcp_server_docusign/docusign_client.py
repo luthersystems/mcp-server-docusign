@@ -7,6 +7,7 @@ from docusign_esign import ApiClient
 from docusign_esign.client.api_exception import ApiException
 
 from .config import DocuSignConfig
+from .errors import body_detail
 
 
 class DocuSignAuthError(ApiException):
@@ -18,7 +19,8 @@ class DocuSignAuthError(ApiException):
     with str(), so that crash reached the MCP client as a bare "Internal server
     error" and hid the hint below (issue #3). This class keeps ApiException as
     its base, so callers that catch ApiException still catch it, and carries
-    the HTTP status of the failure that caused it.
+    the HTTP status of the failure that caused it. translate_api_errors
+    (errors.py) uses .message as the tool error text.
     """
 
     def __init__(self, message: str, status: int | None = None):
@@ -68,6 +70,10 @@ class DocuSignClient:
         else:
             raise ValueError("No private key configured (DS_PRIVATE_KEY or DS_PRIVATE_KEY_PATH)")
 
+    def _oauth_host(self) -> str:
+        """Return the OAuth host name (no scheme) from DS_AUTH_BASE."""
+        return self.config.auth_base.replace("https://", "").replace("http://", "").rstrip("/")
+
     def _get_jwt_token(self) -> str:
         """Obtain a JWT access token from DocuSign.
 
@@ -75,7 +81,7 @@ class DocuSignClient:
             Access token string.
 
         Raises:
-            ApiException: If token request fails.
+            DocuSignAuthError: If the token request fails.
         """
         # Create temporary API client for token request
         api_client = ApiClient()
@@ -84,83 +90,89 @@ class DocuSignClient:
         private_key = self._read_private_key()
 
         try:
-            # Request JWT token
             response = api_client.request_jwt_user_token(
                 client_id=self.config.integration_key,
                 user_id=self.config.user_id,
-                oauth_host_name=self.config.auth_base.replace("https://", "").replace(
-                    "http://", ""
-                ),
+                oauth_host_name=self._oauth_host(),
                 private_key_bytes=private_key,
                 expires_in=self.config.token_exp_secs,
                 scopes=self.config.oauth_scope.split(),
             )
             return response.access_token
         except ApiException as e:
-            raise DocuSignAuthError(
-                f"Failed to obtain JWT token: {e.reason}. "
-                "Ensure admin consent is granted for the integration key.",
-                status=e.status,
-            ) from e
+            # The OAuth body names the real cause (bad key, unknown user,
+            # missing consent). Give the consent hint only for that cause, so
+            # a wrong key does not send the operator to the consent page.
+            detail = body_detail(e.body)
+            message = f"Failed to obtain JWT token: {detail or e.reason}."
+            if detail and "consent_required" in detail:
+                message += " Grant admin consent for the integration key."
+            raise DocuSignAuthError(message, status=e.status) from e
 
-    def _discover_base_uri_and_account(self) -> tuple[str, str]:
+    def _discover_base_uri_and_account(self, token: str) -> tuple[str, str]:
         """Discover the base URI and default account ID for the user.
+
+        Args:
+            token: Access token from _get_jwt_token.
 
         Returns:
             Tuple of (base_uri, account_id).
 
         Raises:
-            ApiException: If userinfo request fails.
+            DocuSignAuthError: If the userinfo request fails or finds no account.
         """
-        if not self._token:
-            raise ValueError("Token must be obtained before discovering base URI")
-
-        # Create temporary API client with token
-        api_client = ApiClient()
-        api_client.set_base_path(self.config.auth_base)
-        api_client.set_default_header("Authorization", f"Bearer {self._token}")
+        # get_user_info calls the SDK client's oauth_host_name, not its base
+        # path. ApiClient() sets that host to the demo server, and
+        # set_base_path does not change it, so set it from DS_AUTH_BASE or a
+        # production token is sent to the demo userinfo endpoint (401).
+        api_client = ApiClient(oauth_host_name=self._oauth_host())
+        api_client.set_default_header("Authorization", f"Bearer {token}")
 
         try:
-            # Get user info
-            user_info = api_client.get_user_info(self._token)
-
-            # Get default account
-            if not user_info.accounts:
-                raise DocuSignAuthError("No accounts found for user")
-
-            default_account = user_info.accounts[0]
-            base_uri = default_account.base_uri + "/restapi"
-            account_id = default_account.account_id
-
-            return base_uri, account_id
-        except DocuSignAuthError:
-            raise
+            user_info = api_client.get_user_info(token)
         except ApiException as e:
+            detail = body_detail(e.body)
             raise DocuSignAuthError(
-                f"Failed to discover base URI: {e.reason}", status=e.status
+                f"Failed to discover base URI: {detail or e.reason}", status=e.status
             ) from e
 
+        accounts = user_info.accounts or []
+        if not accounts:
+            raise DocuSignAuthError("No accounts found for user")
+
+        # A user can belong to several accounts; use the one DocuSign marks as
+        # the default (is_default is the string "true"), not the first listed.
+        account = next((a for a in accounts if str(a.is_default).lower() == "true"), accounts[0])
+        return account.base_uri + "/restapi", account.account_id
+
     def _ensure_authenticated(self) -> None:
-        """Ensure we have a valid token and API client configured."""
+        """Ensure we have a valid token and API client configured.
+
+        The token and client are stored only after every step succeeds. If
+        discovery failed after the token was stored, later calls would skip
+        authentication and use a None client and account ID.
+        """
         current_time = time.time()
 
         # Check if token is expired or will expire soon (5 min buffer)
         if not self._token or current_time >= (self._token_expiry - 300):
-            # Get new token
-            self._token = self._get_jwt_token()
-            self._token_expiry = current_time + self.config.token_exp_secs
+            token = self._get_jwt_token()
 
             # Discover base URI and account if not cached
             if not self.config.base_uri or not self.config.account_id:
-                base_uri, account_id = self._discover_base_uri_and_account()
+                base_uri, account_id = self._discover_base_uri_and_account(token)
                 self.config.set_runtime_info(base_uri, account_id)
 
             # Create new API client with discovered base URI
-            self._api_client = ApiClient()
-            self._api_client.host = (
+            api_client = ApiClient()
+            api_client.host = (
                 self.config.base_uri
             )  # Must set host directly, not via set_base_path()
-            self._api_client.set_default_header("Authorization", f"Bearer {self._token}")
+            api_client.set_default_header("Authorization", f"Bearer {token}")
+
+            self._api_client = api_client
+            self._token = token
+            self._token_expiry = current_time + self.config.token_exp_secs
 
     def get_api_client(self) -> ApiClient:
         """Get an authenticated API client.

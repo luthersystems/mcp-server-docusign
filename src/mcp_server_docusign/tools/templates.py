@@ -6,6 +6,7 @@ from docusign_esign import TemplatesApi
 from fastmcp import FastMCP
 
 from ..docusign_client import DocuSignClient
+from ..errors import translate_api_errors
 
 
 def register_template_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
@@ -17,6 +18,7 @@ def register_template_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
     """
 
     @mcp.tool()
+    @translate_api_errors
     def list_templates(search_text: str | None = None) -> dict[str, Any]:
         """List available DocuSign templates.
 
@@ -58,6 +60,7 @@ def register_template_tools(mcp: FastMCP, ds_client: DocuSignClient) -> None:
         }
 
     @mcp.tool()
+    @translate_api_errors
     def get_template_definition(template_id: str) -> dict[str, Any]:
         """Get the definition and details of a specific template.
 

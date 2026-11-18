@@ -9,6 +9,28 @@ from docusign_esign.client.api_exception import ApiException
 from .config import DocuSignConfig
 
 
+class DocuSignAuthError(ApiException):
+    """An authentication or account discovery failure with a readable message.
+
+    Why not raise the SDK's ApiException with a message? Built without an HTTP
+    response, it has no trace_token or timestamp, so its __str__ raises
+    AttributeError. FastMCP turns a tool's exception into the tool error text
+    with str(), so that crash reached the MCP client as a bare "Internal server
+    error" and hid the hint below (issue #3). This class keeps ApiException as
+    its base, so callers that catch ApiException still catch it, and carries
+    the HTTP status of the failure that caused it.
+    """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(status=status, reason=message)
+        self.message = message
+        self.trace_token = None
+        self.timestamp = None
+
+    def __str__(self) -> str:
+        return self.message
+
+
 class DocuSignClient:
     """DocuSign API client with JWT server-to-server authentication."""
 
@@ -75,9 +97,10 @@ class DocuSignClient:
             )
             return response.access_token
         except ApiException as e:
-            raise ApiException(
+            raise DocuSignAuthError(
                 f"Failed to obtain JWT token: {e.reason}. "
-                "Ensure admin consent is granted for the integration key."
+                "Ensure admin consent is granted for the integration key.",
+                status=e.status,
             ) from e
 
     def _discover_base_uri_and_account(self) -> tuple[str, str]:
@@ -103,15 +126,19 @@ class DocuSignClient:
 
             # Get default account
             if not user_info.accounts:
-                raise ApiException(reason="No accounts found for user")
+                raise DocuSignAuthError("No accounts found for user")
 
             default_account = user_info.accounts[0]
             base_uri = default_account.base_uri + "/restapi"
             account_id = default_account.account_id
 
             return base_uri, account_id
+        except DocuSignAuthError:
+            raise
         except ApiException as e:
-            raise ApiException(f"Failed to discover base URI: {e.reason}") from e
+            raise DocuSignAuthError(
+                f"Failed to discover base URI: {e.reason}", status=e.status
+            ) from e
 
     def _ensure_authenticated(self) -> None:
         """Ensure we have a valid token and API client configured."""

@@ -7,14 +7,16 @@ smoke test after the fastmcp 4.2 upgrade).
 """
 
 import os
+import pickle
 from unittest.mock import Mock, patch
 
 import pytest
 from docusign_esign.client.api_exception import ApiException
 from fastmcp import Client, FastMCP
+from urllib3.exceptions import MaxRetryError
 
 from mcp_server_docusign.config import DocuSignConfig
-from mcp_server_docusign.docusign_client import DocuSignClient
+from mcp_server_docusign.docusign_client import DocuSignAuthError, DocuSignClient
 from mcp_server_docusign.errors import describe_api_error
 from mcp_server_docusign.tools.templates import register_template_tools
 
@@ -66,8 +68,10 @@ def test_jwt_consent_error_has_readable_message(client):
             client.get_api_client()
 
     message = str(exc_info.value)
-    assert "Failed to obtain JWT token: consent_required." in message
-    assert "admin consent" in message
+    assert message == (
+        "Failed to obtain JWT token: DocuSign API error (400): Bad Request - consent_required."
+        " Grant admin consent for the integration key"
+    )
     assert exc_info.value.status == 400
     assert exc_info.value.__cause__ is err
 
@@ -92,7 +96,9 @@ def test_discovery_failure_error_has_readable_message(client):
         with pytest.raises(ApiException) as exc_info:
             client.get_api_client()
 
-    assert "Failed to discover base URI: Unauthorized" in str(exc_info.value)
+    assert str(exc_info.value) == (
+        "Failed to discover base URI: DocuSign API error (401): Unauthorized"
+    )
     assert exc_info.value.status == 401
 
 
@@ -146,10 +152,54 @@ def test_discovery_uses_configured_oauth_host(tmp_path):
     )
 
 
+def test_missing_private_key_is_an_auth_error(tmp_path):
+    client = _make_client(tmp_path)
+    client.config.private_key_path = tmp_path / "missing.key"
+    with pytest.raises(ApiException, match="Failed to obtain JWT token: FileNotFoundError"):
+        client.get_api_client()
+
+
+def test_unreachable_auth_host_is_an_auth_error(client):
+    err = MaxRetryError(None, "/oauth/token", "connection refused")
+    with patch(PATCH_API_CLIENT) as api_client_cls:
+        api_client_cls.return_value.request_jwt_user_token.side_effect = err
+        with pytest.raises(ApiException, match="Failed to obtain JWT token: MaxRetryError"):
+            client.get_api_client()
+
+
+@pytest.mark.parametrize(
+    "auth_base",
+    [
+        "https://account.docusign.com",
+        "https://account.docusign.com/",
+        "https://account.docusign.com/oauth/",
+        "account.docusign.com",
+    ],
+)
+def test_oauth_host_drops_scheme_and_path(tmp_path, auth_base):
+    assert _make_client(tmp_path, auth_base=auth_base)._oauth_host() == "account.docusign.com"
+
+
+def test_auth_error_keeps_message_in_repr_and_pickle():
+    err = DocuSignAuthError("Failed to obtain JWT token: x", status=400)
+    assert "Failed to obtain JWT token: x" in repr(err)
+    copy = pickle.loads(pickle.dumps(err))
+    assert (str(copy), copy.status) == ("Failed to obtain JWT token: x", 400)
+
+
+def test_describe_api_error_keeps_trace_token():
+    resp = Mock(status=500, reason="Internal Server Error", data=b"")
+    resp.getheaders.return_value = {}
+    resp.getheader.side_effect = {"X-DocuSign-TraceToken": "abc-123"}.get
+    assert describe_api_error(ApiException(http_resp=resp)) == (
+        "DocuSign API error (500): Internal Server Error (trace token abc-123)"
+    )
+
+
 def test_describe_api_error_handles_sdk_errors_without_response():
     # The SDK raises these itself (for example on an SSL error); str() of
     # them raises AttributeError, so the description must not use it.
-    assert describe_api_error(ApiException(status=0, reason="ssl failure")) == (
+    assert describe_api_error(ApiException(status=0, reason="ssl\n  failure")) == (
         "DocuSign API error: ssl failure"
     )
     err = _http_error(404, "Not Found", b'{"errorCode":"TEMPLATE_ID_INVALID","message":"bad"}')
@@ -191,3 +241,18 @@ async def test_tool_returns_sdk_error_without_response_to_mcp_client():
 
     assert result.is_error
     assert result.content[0].text == "DocuSign API error: ssl failure"
+
+
+@pytest.mark.asyncio
+async def test_tool_returns_connection_error_to_mcp_client():
+    ds_client = Mock(spec=DocuSignClient)
+    ds_client.get_account_id.return_value = "acct"
+    ds_client.get_api_client.return_value = Mock()
+    with patch("mcp_server_docusign.tools.templates.TemplatesApi") as templates_api:
+        templates_api.return_value.list_templates.side_effect = MaxRetryError(
+            None, "/templates", "connection refused"
+        )
+        result = await _call_list_templates(ds_client)
+
+    assert result.is_error
+    assert result.content[0].text.startswith("Could not reach DocuSign: MaxRetryError")

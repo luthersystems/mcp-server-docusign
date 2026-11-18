@@ -2,35 +2,15 @@
 
 import base64
 import time
+from urllib.parse import urlsplit
 
 from docusign_esign import ApiClient
 from docusign_esign.client.api_exception import ApiException
 
 from .config import DocuSignConfig
-from .errors import body_detail
+from .errors import DocuSignAuthError, body_detail, describe_api_error
 
-
-class DocuSignAuthError(ApiException):
-    """An authentication or account discovery failure with a readable message.
-
-    Why not raise the SDK's ApiException with a message? Built without an HTTP
-    response, it has no trace_token or timestamp, so its __str__ raises
-    AttributeError. FastMCP turns a tool's exception into the tool error text
-    with str(), so that crash reached the MCP client as a bare "Internal server
-    error" and hid the hint below (issue #3). This class keeps ApiException as
-    its base, so callers that catch ApiException still catch it, and carries
-    the HTTP status of the failure that caused it. translate_api_errors
-    (errors.py) uses .message as the tool error text.
-    """
-
-    def __init__(self, message: str, status: int | None = None):
-        super().__init__(status=status, reason=message)
-        self.message = message
-        self.trace_token = None
-        self.timestamp = None
-
-    def __str__(self) -> str:
-        return self.message
+__all__ = ["DocuSignAuthError", "DocuSignClient"]
 
 
 class DocuSignClient:
@@ -71,8 +51,13 @@ class DocuSignClient:
             raise ValueError("No private key configured (DS_PRIVATE_KEY or DS_PRIVATE_KEY_PATH)")
 
     def _oauth_host(self) -> str:
-        """Return the OAuth host name (no scheme) from DS_AUTH_BASE."""
-        return self.config.auth_base.replace("https://", "").replace("http://", "").rstrip("/")
+        """Return the OAuth host name from DS_AUTH_BASE, without scheme or path.
+
+        It is both the JWT audience and the userinfo host, so a path in
+        DS_AUTH_BASE must not leak into it.
+        """
+        base = self.config.auth_base.strip()
+        return urlsplit(base if "://" in base else f"https://{base}").netloc
 
     def _get_jwt_token(self) -> str:
         """Obtain a JWT access token from DocuSign.
@@ -87,9 +72,8 @@ class DocuSignClient:
         api_client = ApiClient()
         api_client.set_base_path(self.config.auth_base)
 
-        private_key = self._read_private_key()
-
         try:
+            private_key = self._read_private_key()
             response = api_client.request_jwt_user_token(
                 client_id=self.config.integration_key,
                 user_id=self.config.user_id,
@@ -103,11 +87,18 @@ class DocuSignClient:
             # The OAuth body names the real cause (bad key, unknown user,
             # missing consent). Give the consent hint only for that cause, so
             # a wrong key does not send the operator to the consent page.
-            detail = body_detail(e.body)
-            message = f"Failed to obtain JWT token: {detail or e.reason}."
-            if detail and "consent_required" in detail:
-                message += " Grant admin consent for the integration key."
+            message = f"Failed to obtain JWT token: {describe_api_error(e)}"
+            if "consent_required" in (body_detail(e.body) or ""):
+                message += ". Grant admin consent for the integration key"
             raise DocuSignAuthError(message, status=e.status) from e
+        except Exception as e:
+            # Everything else here is a setup or network fault: a missing or
+            # malformed key (OSError, ValueError, PyJWT errors) or an
+            # unreachable DS_AUTH_BASE (urllib3 errors the SDK passes through).
+            # Name it as an auth failure so the operator knows where to look.
+            raise DocuSignAuthError(
+                f"Failed to obtain JWT token: {type(e).__name__}: {' '.join(str(e).split())}"
+            ) from e
 
     def _discover_base_uri_and_account(self, token: str) -> tuple[str, str]:
         """Discover the base URI and default account ID for the user.
@@ -131,9 +122,8 @@ class DocuSignClient:
         try:
             user_info = api_client.get_user_info(token)
         except ApiException as e:
-            detail = body_detail(e.body)
             raise DocuSignAuthError(
-                f"Failed to discover base URI: {detail or e.reason}", status=e.status
+                f"Failed to discover base URI: {describe_api_error(e)}", status=e.status
             ) from e
 
         accounts = user_info.accounts or []
